@@ -67,7 +67,7 @@ def trim_video(filename, trim_length=6.0, subsample_rate=11000):
     Return:
         Dictionary
             audio: numpy.array, array of audio samples (trim_length*subsample_rate,)
-            video: numpy.array, array of video samples (trim_length*clip.fps, height, width, channel)
+            video: numpy.array, array of video samples (trim_length*clip.fps, height, width, channel) to be fed in Video Subnetwork
     '''
     clip = mpy.VideoFileClip(filename)
     start = random.randint(0, (int)(clip.duration-trim_length))
@@ -92,7 +92,7 @@ def to_db_spectrogram(audio_array, window_size=1022, hop_length=258):
         audio_array: numpy.array, mono audio array
 
     Return:
-        numpy.array, 256*256 T-F representation on a log-frequency scale
+        numpy.array, 256*256 T-F representation on a log-frequency scale to be fed in Audio Subnetwork
     '''
     stft = np.abs(lc.stft(audio_array, n_fft=window_size, hop_length=hop_length))   # stft.shape = (512, 256)
     db_spec = lc.amplitude_to_db(stft, ref=np.max)
