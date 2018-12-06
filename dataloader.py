@@ -1,62 +1,78 @@
+import os
 import json
-import youtube_dl
-import numpy as np
-from pydub import AudioSegment
-from scipy.io.wavfile import read
-
+import random
 import pytube
 from pytube import YouTube
-import os
-
-def load_from_youtube():
-    json_files = ['MUSIC_dataset/MUSIC_solo_videos.json', 'MUSIC_dataset/MUSIC_duet_videos.json']
-    performance_type = ['solo', 'duet']
-
-    for idx, filepath in enumerate(json_files):
-        # Parse json data
-        with open(filepath) as f:
-            data = json.load(f)
-        videos = data['videos']
-        # Download videos and audios
-        os.chdir('MUSIC_dataset')
-        for category in videos.keys():
-            if not os.path.exists('{}_videos'.format(performance_type[idx])):
-                os.mkdir('{}_videos'.format(performance_type[idx]))
-            # if not os.path.exists('{}_audios'.format(performance_type[idx])):
-            #     os.mkdir('{}_audios'.format(performance_type[idx]))
-            for key in videos[category]:
-                url = 'https://www.youtube.com/watch?v={}'.format(key)
-                try:
-                    yt = YouTube(url)
-                except pytube.exceptions.RegexMatchError as e:
-                    continue
-                # Download video
-                video_stream = yt.streams.filter(file_extension='mp4').all()[0]
-                os.chdir('{}_videos'.format(performance_type[idx]))
-                if not os.path.exists(category):
-                    os.mkdir(category)
-                video_stream.download(category)
-                # Download audio
-                # if len(yt.streams.filter(only_audio=True).all()) is not 0:
-                #     audio_stream = yt.streams.filter(only_audio=True).all()[0] #may be empty list
-                #     os.chdir('../{}_audios'.format(performance_type[idx]))
-                #     if not os.path.exists(category):
-                #         os.mkdir(category)
-                #     audio_stream.download(category)
-                os.chdir('..')
-        os.chdir('..')
-
-import skvideo.io
-def vid_to_numpy(filename):
-    return skvideo.io.vread(filename) # T*H*W*C
-
 import moviepy.editor as mpy
-import random
+
+import numpy as np
 from scipy import signal
 from scipy import ndimage
-filename = 'MUSIC_dataset/solo_videos/flute/Flute Solo Country Gardens.mp4'
+import torch
+import torch.utils.data as data
 
-def trim_video(filename, trim_length=6.0, subsample_rate=11000):
+def is_video_file(filename):
+    return any(filename.endswith(extension) for extension in ['.mp4', '.avi'])
+
+def load_from_youtube(json_filename='MUSIC_dataset/MUSIC_solo_videos.json', performance_type='solo'):
+    '''
+    Load YouTube videos to local directory
+    '''
+    # Parse json data
+    with open(json_filename) as f:
+        data = json.load(f)
+    videos = data['videos']
+    # Download videos and audios
+    os.chdir('MUSIC_dataset')
+    for category in videos.keys():
+        if not os.path.exists('{}_videos'.format(performance_type)):
+            os.mkdir('{}_videos'.format(performance_type))
+        for key in videos[category]:
+            url = 'https://www.youtube.com/watch?v={}'.format(key)
+            try:
+                yt = YouTube(url)
+            except pytube.exceptions.RegexMatchError as e:
+                continue
+            # Download video
+            video_stream = yt.streams.filter(file_extension='mp4').all()[0]
+            os.chdir('{}_videos'.format(performance_type))
+            if not os.path.exists(category):
+                os.mkdir(category)
+            video_stream.download(category)
+            os.chdir('..')
+    os.chdir('..')
+
+def build_video_dict(filepath='MUSIC_dataset/solo_videos'):
+    '''
+    Build a video dictionary.
+
+    Return:
+        Dictionary
+            key: category
+            value: a list of video filenames in the specified category
+    '''
+    video_dict = {}
+    num_per_category = {}
+    total = 0
+    for category in os.listdir(filepath):
+        if category.startswith('.'):
+            continue
+        else:
+            if category not in video_dict.keys():
+                video_dict[category] = []
+                num_per_category[category] = 0
+            for filename in os.listdir(os.path.join(filepath, category)):
+                if is_video_file(filename):
+                    video_dict[category].append(filename)
+                    num_per_category[category] += 1
+                    total += 1
+    return video_dict, num_per_category, total
+
+
+
+# filename = 'MUSIC_dataset/solo_videos/flute/Flute Solo Country Gardens.mp4'
+
+def trim_video(filename, trim_length=6.0, subsampling_rate=11000, window_size=1022, hop_length=258):
     '''
     Randomly crops from untrimmed videos during training.
 
@@ -66,8 +82,8 @@ def trim_video(filename, trim_length=6.0, subsample_rate=11000):
 
     Return:
         Dictionary
-            audio: numpy.array, array of audio samples (trim_length*subsample_rate,)
-            video: numpy.array, array of video samples (trim_length*clip.fps, height, width, channel) to be fed in Video Subnetwork
+            audio: torch.Tensor, tensor of audio samples (trim_length*subsampling_rate,)
+            video: torch.Tensor, tensor of video samples (trim_length*clip.fps, height, width, channel) to be fed in Video Subnetwork
     '''
     clip = mpy.VideoFileClip(filename)
     start = random.randint(0, (int)(clip.duration-trim_length))
@@ -80,11 +96,12 @@ def trim_video(filename, trim_length=6.0, subsample_rate=11000):
         else:
             video_array = np.concatenate((video_array, np.expand_dims(frame, axis=0)), axis=0)
     audio_array = audio_clip.to_soundarray()    # AudioFileClip to numpy.array
-    audio_array = signal.resample(audio_array, (int)(trim_length*subsample_rate))   # Subsample the original signal
+    audio_array = signal.resample(audio_array, (int)(trim_length*subsampling_rate))   # Subsample the original signal
     audio_array = np.mean(audio_array, axis=1)  # stereo to mono
-    return {'audio': audio_array, 'video': video_array}
+    audio_array = to_db_spectrogram(audio_array, window_size, hop_length)
+    return {'audio': torch.from_numpy(audio_array), 'video': torch.from_numpy(video_array)}
 
-def to_db_spectrogram(audio_array, window_size=1022, hop_length=258):
+def to_db_spectrogram(audio_array, window_size, hop_length):
     '''
     Convert mono audio array to a log spectrogram.
 
@@ -100,7 +117,35 @@ def to_db_spectrogram(audio_array, window_size=1022, hop_length=258):
     db_spec_resampled = ndimage.zoom(db_spec, (0.5,1))
     return db_spec_resampled
 
+class MUSIC(data.Dataset):
+    def __init__(self, basepath, filename, performance_type, trim_length=6.0, subsampling_rate=11000, window_size=1022, hop_length=258):
+        super(MUSIC, self).__init__()
+        self.basepath = basepath    # 'MUSIC_dataset/solo_videos'
+        self.filename = filename # json filename
+        self.performance_type = performance_type # solo or duet
+        self.trim_length = trim_length
+        self.subsampling_rate = subsampling_rate
+        self.window_size = window_size
+        self.hop_length = hop_length
+        self.video_dict, self.num_per_category, self.total_videos = build_video_dict('MUSIC_dataset/{}_videos'.format(self.performance_type))
+    def __getitem__(self, index):
+        '''
+        Randomly returns a trimmed video and its corresponding audio spectrogram.
 
+        Args:
+            index: int, 0 by default
+        '''
+        category = random.choice(self.video_dict.keys())
+        filename = os.path.join(self.basepath, category, random.choice(self.video_dict[category]))
+        item = trim_video(filename, self.trim_length, self.subsampling_rate)
+        return item
+
+    def __len__(self):
+        return self.total_videos
+
+# import youtube_dl
+# from pydub import AudioSegment
+# from scipy.io.wavfile import read
 # # Download youtube videos
 # ydl_opts = {}
 # with youtube_dl.YoutubeDL(ydl_opts) as ydl:
