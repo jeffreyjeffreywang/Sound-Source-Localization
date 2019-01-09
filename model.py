@@ -94,6 +94,7 @@ class UNet(nn.Module):
             encoder_out = encoder_outs[idx]
             x = model(encoder_out, x)
         x = self.final_conv(x)
+        x = x.squeeze(0)
         return x
 
 def audio_net():
@@ -193,4 +194,27 @@ class ResNet(nn.Module):
 
 def visual_net():
     model = ResNet(BasicBlock, [2,2,2,2]) # ResNet18
+    return model
+
+'''
+Audio synthesizer network.
+A linear layer.
+Input: audio feature (torch.Tensor of shape [K,256,256]) and visual feature (torch.Tensor of shape [K,256,256])
+Output: spectrogram mask (torch.Tensor of shape [256,256])
+'''
+class Synthesizer(nn.Module):
+    def __init__(self, bias=True):
+        super(Synthesizer, self).__init__()
+        self.bias = bias
+        self.linear = nn.Linear(K, 1, bias=self.bias)
+
+    def forward(self, x, y):
+        out = torch.mul(x,y)
+        out = out.transpose(0,1).transpose(1,2)
+        out = self.linear(out)
+        out = out.squeeze(2)
+        return out
+
+def audio_synthesizer_net():
+    model = Synthesizer(True)
     return model
