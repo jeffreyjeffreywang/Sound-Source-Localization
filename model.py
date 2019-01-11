@@ -186,10 +186,10 @@ class ResNet(nn.Module):
         x = self.layer4(x)
         x = self.last_conv(x) # torch.Tensor of shape [T,K,H/16,W/16]
 
-        x = x.mean(0)   # Temporal average pooling
+        x = x.max(0)[0]   # Temporal max pooling
         x = x.unsqueeze(0) # torch.Tensor of shape [1,K,H/16,W/16]
         x = self.transpose_conv(x)  # Spatial unpooling
-        x = x.squeeze(0) # torch.Tensor of shape [K,H/16,W/16]
+        x = x.squeeze(0) # torch.Tensor of shape [K,H,W]
         return x
 
 def visual_net():

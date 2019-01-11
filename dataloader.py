@@ -11,6 +11,9 @@ from scipy import ndimage
 import torch
 import torch.utils.data as data
 
+import librosa
+import librosa.core as lc
+
 def is_video_file(filename):
     return any(filename.endswith(extension) for extension in ['.mp4', '.avi'])
 
@@ -68,8 +71,6 @@ def build_video_dict(filepath='MUSIC_dataset/solo_videos'):
                     total += 1
     return video_dict, num_per_category, total
 
-
-
 # filename = 'MUSIC_dataset/solo_videos/flute/Flute Solo Country Gardens.mp4'
 
 def trim_video(filename, trim_length=6.0, subsampling_rate=11000, window_size=1022, hop_length=258):
@@ -86,6 +87,7 @@ def trim_video(filename, trim_length=6.0, subsampling_rate=11000, window_size=10
             video: torch.Tensor, tensor of video samples (trim_length*clip.fps, height, width, channel) to be fed in Video Subnetwork
     '''
     clip = mpy.VideoFileClip(filename)
+    clip = clip.resize((256,256))
     start = random.randint(0, (int)(clip.duration-trim_length))
     clip = clip.subclip(start, start+trim_length)
     audio_clip = clip.audio
@@ -95,6 +97,9 @@ def trim_video(filename, trim_length=6.0, subsampling_rate=11000, window_size=10
             video_array = np.expand_dims(frame, axis=0)
         else:
             video_array = np.concatenate((video_array, np.expand_dims(frame, axis=0)), axis=0)
+    # Choose T=3 frames
+    perm = np.random.permutation(video_array.shape[0])
+    video_array = video_array[perm[:3],:,:,:]
     audio_array = audio_clip.to_soundarray()    # AudioFileClip to numpy.array
     audio_array = signal.resample(audio_array, (int)(trim_length*subsampling_rate))   # Subsample the original signal
     audio_array = np.mean(audio_array, axis=1)  # stereo to mono
@@ -128,6 +133,7 @@ class MUSIC(data.Dataset):
         self.window_size = window_size
         self.hop_length = hop_length
         self.video_dict, self.num_per_category, self.total_videos = build_video_dict('MUSIC_dataset/{}_videos'.format(self.performance_type))
+
     def __getitem__(self, index):
         '''
         Randomly returns a trimmed video and its corresponding audio spectrogram.
@@ -142,6 +148,12 @@ class MUSIC(data.Dataset):
 
     def __len__(self):
         return self.total_videos
+
+def mix(audio1, audio2):
+    '''
+    Mix two soundtracks to perform mix and separate framework.
+    '''
+    return torch.add(audio1, audio2)
 
 # import youtube_dl
 # from pydub import AudioSegment
