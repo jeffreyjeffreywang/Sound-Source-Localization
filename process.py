@@ -12,3 +12,9 @@ def binary_mask(spec, spec_list):
         else:
             mask = torch.mul(mask, torch.ge(spec, spec_i)) # Elementwise and
     return mask
+
+def mix(audio1, audio2):
+    '''
+    Mix two soundtracks to perform mix and separate framework.
+    '''
+    return torch.add(audio1, audio2)

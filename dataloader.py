@@ -122,6 +122,21 @@ def to_db_spectrogram(audio_array, window_size, hop_length):
     db_spec_resampled = ndimage.zoom(db_spec, (0.5,1))
     return db_spec_resampled
 
+def to_time_domain_audio(db_spec_resampled, window_size=1022, hop_length=258):
+    '''
+    An inverse operation of to_db_spectrogram
+
+    Args:
+        db_sepc_resampled: numpy.array, 256*256 T-F representation on a log-frequency scale
+
+    Return:
+        numpy.array, time domain audio
+    '''
+    db_spec = ndimage.zoom(db_spec_resampled, (2,1))
+    linear_spec = lc.db_to_amplitude(db_spec)
+    audio = lc.istft(linear_spec, n_fft=window_size, hop_length=hop_length, center=True)
+    return audio
+
 class MUSIC(data.Dataset):
     def __init__(self, basepath, filename, performance_type, trim_length=6.0, subsampling_rate=11000, window_size=1022, hop_length=258):
         super(MUSIC, self).__init__()
@@ -148,12 +163,6 @@ class MUSIC(data.Dataset):
 
     def __len__(self):
         return self.total_videos
-
-def mix(audio1, audio2):
-    '''
-    Mix two soundtracks to perform mix and separate framework.
-    '''
-    return torch.add(audio1, audio2)
 
 # import youtube_dl
 # from pydub import AudioSegment

@@ -97,9 +97,6 @@ class UNet(nn.Module):
         x = x.squeeze(0)
         return x
 
-def audio_net():
-    return UNet(in_channels=1, start_channels=16, out_channels=16, depth=6)
-
 '''
 Video analysis network
 ResNet-18 (https://arxiv.org/abs/1512.03385) with modifications
@@ -192,10 +189,6 @@ class ResNet(nn.Module):
         x = x.squeeze(0) # torch.Tensor of shape [K,H,W]
         return x
 
-def visual_net():
-    model = ResNet(BasicBlock, [2,2,2,2]) # ResNet18
-    return model
-
 '''
 Audio synthesizer network.
 A linear layer.
@@ -215,6 +208,22 @@ class Synthesizer(nn.Module):
         out = out.squeeze(2)
         return out
 
-def audio_synthesizer_net():
-    model = Synthesizer(True)
-    return model
+class LocalizationNet(nn.Module):
+    def __init__(self, in_channels=1, start_channels=16, out_channels=K, depth=6, block=BasicBlock, layers=[2,2,2,2], bias=True):
+        super(LocalizationNet, self).__init__()
+        self.in_channels = in_channels
+        self.start_channels = start_channels
+        self.out_channels = out_channels
+        self.depth = depth
+        self.block = block
+        self.layers = layers
+        self.bias = bias
+        self.audio_net = UNet(in_channels=self.in_channels, start_channels=self.start_channels, out_channels=self.out_channels, depth=self.depth)
+        self.visual_net = ResNet(self.block, self.layers)
+        self.synthesizer = Synthesizer(self.bias)
+
+    def forward(self, audio_feature, visual_feature):
+        x = self.audio_net(audio_feature)
+        y = self.visual_net(visual_feature)
+        out = self.synthesizer(x,y)
+        return out
